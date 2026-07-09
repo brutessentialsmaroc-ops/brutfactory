@@ -29,6 +29,7 @@ body {
   justify-content: center;
   padding: 20px;
 }
+.auth-screen[hidden] { display: none; }
 .auth-card {
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -145,51 +146,4 @@ textarea { resize: vertical; }
 .data-table tbody tr:hover { background: #fafbfc; cursor: default; }
 .data-table tbody tr.clickable { cursor: pointer; }
 .data-table tbody tr.clickable:hover { background: #f0f4f1; }
-.data-table.small th, .data-table.small td { padding: 6px 8px; font-size: 0.88em; }
-
-.negative { color: var(--danger); font-weight: 600; }
-.positive { color: var(--primary); font-weight: 600; }
-
-/* ---------- Cards / product detail ---------- */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-@media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
-
-.card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px;
-  margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.card h3 { margin: 0 0 4px; font-size: 1.02em; }
-
-.checkbox-row { flex-direction: row; align-items: center; gap: 8px; }
-.checkbox-row input { width: auto; }
-
-.inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
-.inline-form input, .inline-form select { flex: 1; min-width: 120px; }
-
-.cost-breakdown { display: flex; flex-direction: column; gap: 6px; }
-.cost-breakdown .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
-.cost-breakdown .row.total { font-weight: 700; border-bottom: none; border-top: 2px solid var(--border); padding-top: 8px; margin-top: 4px; }
-
-/* ---------- Modal ---------- */
-.modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
-}
-.modal-overlay[hidden] { display: none; }
-.modal {
-  background: #fff; border-radius: var(--radius); padding: 24px; width: 100%; max-width: 420px;
-  display: flex; flex-direction: column; gap: 12px; max-height: 90vh; overflow-y: auto;
-}
-.modal h3 { margin: 0; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
-
-.icon-btn {
-  background: none; border: none; cursor: pointer; color: var(--muted); font-size: 0.85em;
-}
-.icon-btn:hover { color: var(--danger); }
+.data-table.small th,

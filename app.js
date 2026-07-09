@@ -1,5 +1,5 @@
 // ============================================================
-// Coûts & Rentabilité — logique applicative
+// Coûts & Rentabilité — logique applicative (v2, mécanisme BRUT FACTORY)
 // ============================================================
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -9,7 +9,7 @@ const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 function fmtMoney(n) {
   if (n === null || n === undefined || isNaN(n)) return "—";
-  return Number(n).toFixed(2) + " " + CURRENCY;
+  return Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + CURRENCY;
 }
 function fmtPct(n) {
   if (n === null || n === undefined || isNaN(n)) return "—";
@@ -19,15 +19,20 @@ function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("fr-FR");
 }
+function numOrNull(v) {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
 
 // Cache local des référentiels
-const cache = { materials: [], labor: [], charges: [], products: [] };
+const cache = { workers: [], chargesFixes: [], devisList: [], parametres: { id: null, ca_mensuel_estime: 0 } };
 
 // ============================================================
 // AUTH
 // ============================================================
 
-let authMode = "signin"; // ou "signup"
+let authMode = "signin";
 
 qs("#auth-toggle").addEventListener("click", () => {
   authMode = authMode === "signin" ? "signup" : "signin";
@@ -85,7 +90,7 @@ async function onAuthed(session) {
 qsa(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => showView(btn.dataset.view));
 });
-qs("#back-to-catalogue").addEventListener("click", () => showView("catalogue"));
+qs("#back-to-devis").addEventListener("click", () => showView("devis"));
 
 async function showView(name) {
   qsa(".view").forEach((v) => v.classList.remove("active"));
@@ -94,10 +99,9 @@ async function showView(name) {
   if (target) target.classList.add("active");
 
   if (name === "dashboard") await renderDashboard();
-  if (name === "catalogue") renderProductsTable();
-  if (name === "materials") renderMaterialsTable();
-  if (name === "labor") renderLaborTable();
-  if (name === "charges") renderChargesTable();
+  if (name === "devis") renderDevisTable();
+  if (name === "workers") renderWorkersTable();
+  if (name === "charges-fixes") renderChargesFixesTable();
   if (name === "benchmarking") await renderBenchmarkingTable();
 }
 
@@ -173,343 +177,326 @@ qs("#modal-cancel").addEventListener("click", closeModal);
 qs("#modal-save").addEventListener("click", () => modalOnSave && modalOnSave());
 
 // ============================================================
+// CALCULS (mêmes formules que le fichier Excel)
+// ============================================================
+
+// Tarif/jour = (Salaire mensuel x 1,20 CNSS) / Jours par mois
+function workerCnss(w) { return Number(w.salaire_mensuel || 0) * 0.2; }
+function workerCoutCharge(w) { return Number(w.salaire_mensuel || 0) * 1.2; }
+function workerTarifJour(w) {
+  const jours = Number(w.jours_mois || 0);
+  if (!jours) return 0;
+  return workerCoutCharge(w) / jours;
+}
+
+function chargesFixesTotalMensuel() {
+  return cache.chargesFixes.reduce((sum, c) => sum + Number(c.montant_mensuel || 0), 0);
+}
+
+// Calcule tous les indicateurs de rentabilité d'un devis
+function calcDevisCosting(devis, materials, labor) {
+  const coutMatieres = materials.reduce((sum, m) => sum + Number(m.qte || 0) * Number(m.prix_unitaire || 0), 0);
+  const coutMainOeuvre = labor.reduce((sum, l) => {
+    const w = cache.workers.find((x) => x.id === l.worker_id);
+    return sum + Number(l.nb_jours || 0) * (w ? workerTarifJour(w) : 0);
+  }, 0);
+  const fraisDivers = Number(devis.frais_livraison || 0) + Number(devis.frais_emballage || 0);
+  const coutRevientDirect = coutMatieres + coutMainOeuvre + fraisDivers;
+
+  const prixVenteHT = numOrNull(devis.prix_vente_ht);
+  const caMensuel = Number(cache.parametres.ca_mensuel_estime || 0);
+  const totalChargesFixes = chargesFixesTotalMensuel();
+  const quotePartCharges = prixVenteHT && caMensuel > 0 ? (prixVenteHT / caMensuel) * totalChargesFixes : 0;
+
+  const coutRevientTotal = coutRevientDirect + quotePartCharges;
+  const margeBrute = prixVenteHT !== null ? prixVenteHT - coutRevientTotal : null;
+  const tauxMarge = prixVenteHT ? (margeBrute / prixVenteHT) * 100 : null;
+  const tvaPct = Number(devis.tva_pct || 0);
+  const prixTTC = prixVenteHT !== null ? prixVenteHT * (1 + tvaPct / 100) : null;
+
+  return {
+    coutMatieres, coutMainOeuvre, fraisDivers, coutRevientDirect,
+    prixVenteHT, quotePartCharges, coutRevientTotal, margeBrute, tauxMarge, prixTTC,
+  };
+}
+
+// ============================================================
 // CHARGEMENT DES REFERENTIELS
 // ============================================================
 
 async function loadAllReferenceData() {
-  const [mats, lab, chg, prods] = await Promise.all([
-    sb.from("raw_materials").select("*").order("nom"),
-    sb.from("labor_rates").select("*").order("nom_poste"),
-    sb.from("overhead_charges").select("*").order("nom"),
-    sb.from("products").select("*").order("nom"),
+  const [workers, chargesFixes, devisList, parametres] = await Promise.all([
+    sb.from("workers").select("*").order("nom"),
+    sb.from("charges_fixes").select("*").order("designation"),
+    sb.from("devis").select("*").order("date_devis", { ascending: false }),
+    sb.from("parametres").select("*").limit(1),
   ]);
-  cache.materials = mats.data || [];
-  cache.labor = lab.data || [];
-  cache.charges = chg.data || [];
-  cache.products = prods.data || [];
+  cache.workers = workers.data || [];
+  cache.chargesFixes = chargesFixes.data || [];
+  cache.devisList = devisList.data || [];
+  cache.parametres = (parametres.data && parametres.data[0]) || { id: null, ca_mensuel_estime: 0 };
 
-  renderMaterialsTable();
-  renderLaborTable();
-  renderChargesTable();
-  renderProductsTable();
+  renderWorkersTable();
+  renderChargesFixesTable();
+  renderDevisTable();
 }
 
 // ============================================================
-// MATIERES PREMIERES
+// PRESTATAIRES & TARIFS
 // ============================================================
 
-function renderMaterialsTable() {
-  const tbody = qs("#materials-table tbody");
+function renderWorkersTable() {
+  const tbody = qs("#workers-table tbody");
   tbody.innerHTML = "";
-  cache.materials.forEach((m) => {
+  cache.workers.forEach((w) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(m.nom)}</td>
-      <td>${escapeHtml(m.unite)}</td>
-      <td>${fmtMoney(m.prix_unitaire)}</td>
-      <td>${escapeHtml(m.fournisseur || "")}</td>
+      <td>${escapeHtml(w.nom)}</td>
+      <td>${escapeHtml(w.poste || "")}</td>
+      <td>${escapeHtml(w.categorie || "")}</td>
+      <td>${fmtMoney(w.salaire_mensuel)}</td>
+      <td>${fmtMoney(workerCnss(w))}</td>
+      <td>${fmtMoney(workerCoutCharge(w))}</td>
+      <td>${w.jours_mois}</td>
+      <td>${fmtMoney(workerTarifJour(w))}</td>
       <td>
-        <button class="icon-btn edit-mat" data-id="${m.id}">✎</button>
-        <button class="icon-btn del-mat" data-id="${m.id}">🗑</button>
+        <button class="icon-btn edit-worker" data-id="${w.id}">✎</button>
+        <button class="icon-btn del-worker" data-id="${w.id}">🗑</button>
       </td>`;
     tbody.appendChild(tr);
   });
-
-  qsa(".edit-mat").forEach((b) =>
-    b.addEventListener("click", () => editMaterial(b.dataset.id))
-  );
-  qsa(".del-mat").forEach((b) =>
-    b.addEventListener("click", () => deleteMaterial(b.dataset.id))
-  );
+  qsa(".edit-worker").forEach((b) => b.addEventListener("click", () => editWorker(b.dataset.id)));
+  qsa(".del-worker").forEach((b) => b.addEventListener("click", () => deleteWorker(b.dataset.id)));
 }
 
-const materialFields = [
+const workerFields = [
   { key: "nom", label: "Nom", type: "text" },
-  { key: "unite", label: "Unité (kg, L, m, unité...)", type: "text" },
-  { key: "prix_unitaire", label: "Prix unitaire", type: "number", step: "0.01" },
-  { key: "fournisseur", label: "Fournisseur", type: "text" },
+  { key: "poste", label: "Poste (ex: Menuisier, Tapissier)", type: "text" },
+  { key: "categorie", label: "Catégorie (ex: Menuiserie bois, Tapisserie)", type: "text" },
+  { key: "salaire_mensuel", label: "Salaire mensuel brut (DHS)", type: "number", step: "0.01" },
+  { key: "jours_mois", label: "Jours travaillés / mois", type: "number", step: "1" },
   { key: "notes", label: "Notes", type: "textarea" },
 ];
 
-qs("#add-material-btn").addEventListener("click", () => {
+qs("#add-worker-btn").addEventListener("click", () => {
   openFormModal({
-    title: "Nouvelle matière première",
-    fields: materialFields,
+    title: "Nouveau prestataire",
+    fields: workerFields,
+    initialValues: { jours_mois: 26 },
     onSave: async (values) => {
-      const { error } = await sb.from("raw_materials").insert(values);
+      const { error } = await sb.from("workers").insert(values);
       if (error) return alert(error.message);
       await loadAllReferenceData();
     },
   });
 });
 
-function editMaterial(id) {
-  const m = cache.materials.find((x) => x.id === id);
+function editWorker(id) {
+  const w = cache.workers.find((x) => x.id === id);
   openFormModal({
-    title: "Modifier la matière",
-    fields: materialFields,
-    initialValues: m,
+    title: "Modifier le prestataire",
+    fields: workerFields,
+    initialValues: w,
     onSave: async (values) => {
-      const { error } = await sb.from("raw_materials").update(values).eq("id", id);
+      const { error } = await sb.from("workers").update(values).eq("id", id);
       if (error) return alert(error.message);
       await loadAllReferenceData();
     },
   });
 }
 
-async function deleteMaterial(id) {
-  if (!confirm("Supprimer cette matière ?")) return;
-  const { error } = await sb.from("raw_materials").delete().eq("id", id);
+async function deleteWorker(id) {
+  if (!confirm("Supprimer ce prestataire ?")) return;
+  const { error } = await sb.from("workers").delete().eq("id", id);
   if (error) return alert(error.message);
   await loadAllReferenceData();
 }
 
 // ============================================================
-// MAIN D'OEUVRE
+// CHARGES FIXES
 // ============================================================
 
-function renderLaborTable() {
-  const tbody = qs("#labor-table tbody");
+function renderChargesFixesTable() {
+  const tbody = qs("#charges-fixes-table tbody");
   tbody.innerHTML = "";
-  cache.labor.forEach((l) => {
+  cache.chargesFixes.forEach((c) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(l.nom_poste)}</td>
-      <td>${fmtMoney(l.taux_horaire)} / h</td>
-      <td>${escapeHtml(l.notes || "")}</td>
+      <td>${escapeHtml(c.designation)}</td>
+      <td>${fmtMoney(c.montant_mensuel)}</td>
+      <td>${fmtMoney(Number(c.montant_mensuel || 0) * 12)}</td>
+      <td>${escapeHtml(c.notes || "")}</td>
       <td>
-        <button class="icon-btn edit-lab" data-id="${l.id}">✎</button>
-        <button class="icon-btn del-lab" data-id="${l.id}">🗑</button>
+        <button class="icon-btn edit-charge-fixe" data-id="${c.id}">✎</button>
+        <button class="icon-btn del-charge-fixe" data-id="${c.id}">🗑</button>
       </td>`;
     tbody.appendChild(tr);
   });
-  qsa(".edit-lab").forEach((b) => b.addEventListener("click", () => editLabor(b.dataset.id)));
-  qsa(".del-lab").forEach((b) => b.addEventListener("click", () => deleteLabor(b.dataset.id)));
+  qsa(".edit-charge-fixe").forEach((b) => b.addEventListener("click", () => editChargeFixe(b.dataset.id)));
+  qsa(".del-charge-fixe").forEach((b) => b.addEventListener("click", () => deleteChargeFixe(b.dataset.id)));
+
+  const total = chargesFixesTotalMensuel();
+  qs("#charges-fixes-total").innerHTML = `<strong>${fmtMoney(total)}</strong>`;
+  qs("#charges-fixes-total-annuel").textContent = fmtMoney(total * 12);
+
+  qs("#ca-mensuel-input").value = cache.parametres.ca_mensuel_estime || "";
 }
 
-const laborFields = [
-  { key: "nom_poste", label: "Poste (ex: Couturière, Assemblage)", type: "text" },
-  { key: "taux_horaire", label: "Taux horaire", type: "number", step: "0.01" },
+const chargeFixeFields = [
+  { key: "designation", label: "Désignation (ex: Loyer atelier)", type: "text" },
+  { key: "montant_mensuel", label: "Montant / mois (DHS)", type: "number", step: "0.01" },
   { key: "notes", label: "Notes", type: "textarea" },
 ];
 
-qs("#add-labor-btn").addEventListener("click", () => {
+qs("#add-charge-fixe-btn").addEventListener("click", () => {
   openFormModal({
-    title: "Nouveau poste de main d'œuvre",
-    fields: laborFields,
+    title: "Nouvelle charge fixe",
+    fields: chargeFixeFields,
     onSave: async (values) => {
-      const { error } = await sb.from("labor_rates").insert(values);
+      const { error } = await sb.from("charges_fixes").insert(values);
       if (error) return alert(error.message);
       await loadAllReferenceData();
     },
   });
 });
 
-function editLabor(id) {
-  const l = cache.labor.find((x) => x.id === id);
-  openFormModal({
-    title: "Modifier le poste",
-    fields: laborFields,
-    initialValues: l,
-    onSave: async (values) => {
-      const { error } = await sb.from("labor_rates").update(values).eq("id", id);
-      if (error) return alert(error.message);
-      await loadAllReferenceData();
-    },
-  });
-}
-
-async function deleteLabor(id) {
-  if (!confirm("Supprimer ce poste ?")) return;
-  const { error } = await sb.from("labor_rates").delete().eq("id", id);
-  if (error) return alert(error.message);
-  await loadAllReferenceData();
-}
-
-// ============================================================
-// CHARGES
-// ============================================================
-
-function renderChargesTable() {
-  const tbody = qs("#charges-table tbody");
-  tbody.innerHTML = "";
-  cache.charges.forEach((c) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${escapeHtml(c.nom)}</td>
-      <td>${c.type}</td>
-      <td>${fmtMoney(c.montant)}</td>
-      <td>${c.periode}</td>
-      <td>
-        <button class="icon-btn edit-chg" data-id="${c.id}">✎</button>
-        <button class="icon-btn del-chg" data-id="${c.id}">🗑</button>
-      </td>`;
-    tbody.appendChild(tr);
-  });
-  qsa(".edit-chg").forEach((b) => b.addEventListener("click", () => editCharge(b.dataset.id)));
-  qsa(".del-chg").forEach((b) => b.addEventListener("click", () => deleteCharge(b.dataset.id)));
-}
-
-const chargeFields = [
-  { key: "nom", label: "Nom (ex: Loyer, Électricité)", type: "text" },
-  {
-    key: "type",
-    label: "Type",
-    type: "select",
-    options: [
-      { value: "fixe", label: "Fixe" },
-      { value: "variable", label: "Variable" },
-    ],
-  },
-  { key: "montant", label: "Montant", type: "number", step: "0.01" },
-  {
-    key: "periode",
-    label: "Période",
-    type: "select",
-    options: [
-      { value: "mensuel", label: "Mensuel" },
-      { value: "annuel", label: "Annuel" },
-      { value: "unitaire", label: "Par unité produite" },
-    ],
-  },
-  { key: "notes", label: "Notes", type: "textarea" },
-];
-
-qs("#add-charge-btn").addEventListener("click", () => {
-  openFormModal({
-    title: "Nouvelle charge",
-    fields: chargeFields,
-    initialValues: { type: "fixe", periode: "mensuel" },
-    onSave: async (values) => {
-      const { error } = await sb.from("overhead_charges").insert(values);
-      if (error) return alert(error.message);
-      await loadAllReferenceData();
-    },
-  });
-});
-
-function editCharge(id) {
-  const c = cache.charges.find((x) => x.id === id);
+function editChargeFixe(id) {
+  const c = cache.chargesFixes.find((x) => x.id === id);
   openFormModal({
     title: "Modifier la charge",
-    fields: chargeFields,
+    fields: chargeFixeFields,
     initialValues: c,
     onSave: async (values) => {
-      const { error } = await sb.from("overhead_charges").update(values).eq("id", id);
+      const { error } = await sb.from("charges_fixes").update(values).eq("id", id);
       if (error) return alert(error.message);
       await loadAllReferenceData();
     },
   });
 }
 
-async function deleteCharge(id) {
+async function deleteChargeFixe(id) {
   if (!confirm("Supprimer cette charge ?")) return;
-  const { error } = await sb.from("overhead_charges").delete().eq("id", id);
+  const { error } = await sb.from("charges_fixes").delete().eq("id", id);
   if (error) return alert(error.message);
   await loadAllReferenceData();
 }
 
+qs("#save-ca-mensuel").addEventListener("click", async () => {
+  const val = Number(qs("#ca-mensuel-input").value || 0);
+  if (cache.parametres.id) {
+    const { error } = await sb.from("parametres").update({ ca_mensuel_estime: val }).eq("id", cache.parametres.id);
+    if (error) return alert(error.message);
+  } else {
+    const { error } = await sb.from("parametres").insert({ ca_mensuel_estime: val });
+    if (error) return alert(error.message);
+  }
+  await loadAllReferenceData();
+});
+
 // ============================================================
-// CATALOGUE PRODUITS
+// DEVIS (liste)
 // ============================================================
 
-function renderProductsTable() {
-  const tbody = qs("#products-table tbody");
+function renderDevisTable() {
+  const tbody = qs("#devis-table tbody");
   tbody.innerHTML = "";
-  cache.products.forEach((p) => {
+  cache.devisList.forEach((d) => {
     const tr = document.createElement("tr");
     tr.classList.add("clickable");
     tr.innerHTML = `
-      <td>${escapeHtml(p.reference || "")}</td>
-      <td>${escapeHtml(p.nom)}</td>
-      <td>${escapeHtml(p.categorie || "")}</td>
-      <td>${p.actif ? "Oui" : "Non"}</td>
-      <td><button class="icon-btn del-prod" data-id="${p.id}">🗑</button></td>`;
+      <td>${escapeHtml(d.client || "")}</td>
+      <td>${escapeHtml(d.produit_nom)}</td>
+      <td>${escapeHtml(d.reference || "")}</td>
+      <td>${fmtDate(d.date_devis)}</td>
+      <td><button class="icon-btn del-devis" data-id="${d.id}">🗑</button></td>`;
     tr.addEventListener("click", (e) => {
-      if (e.target.closest(".del-prod")) return;
-      openProductDetail(p.id);
+      if (e.target.closest(".del-devis")) return;
+      openDevisDetail(d.id);
     });
     tbody.appendChild(tr);
   });
-  qsa(".del-prod").forEach((b) =>
+  qsa(".del-devis").forEach((b) =>
     b.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm("Supprimer ce produit et toutes ses données associées ?")) return;
-      const { error } = await sb.from("products").delete().eq("id", b.dataset.id);
+      if (!confirm("Supprimer ce devis et toutes ses données associées ?")) return;
+      const { error } = await sb.from("devis").delete().eq("id", b.dataset.id);
       if (error) return alert(error.message);
       await loadAllReferenceData();
     })
   );
 }
 
-qs("#add-product-btn").addEventListener("click", () => {
+qs("#add-devis-btn").addEventListener("click", () => {
   openFormModal({
-    title: "Nouveau produit",
+    title: "Nouveau devis",
     fields: [
+      { key: "client", label: "Client", type: "text" },
+      { key: "produit_nom", label: "Nom du produit", type: "text" },
       { key: "reference", label: "Référence", type: "text" },
-      { key: "nom", label: "Nom", type: "text" },
-      { key: "categorie", label: "Catégorie", type: "text" },
+      { key: "date_devis", label: "Date", type: "date" },
     ],
+    initialValues: { date_devis: new Date().toISOString().slice(0, 10) },
     onSave: async (values) => {
-      const { data, error } = await sb.from("products").insert(values).select().single();
+      if (!values.produit_nom) return alert("Le nom du produit est requis.");
+      const { data, error } = await sb.from("devis").insert(values).select().single();
       if (error) return alert(error.message);
       await loadAllReferenceData();
-      openProductDetail(data.id);
+      openDevisDetail(data.id);
     },
   });
 });
 
 // ============================================================
-// FICHE PRODUIT (détail)
+// FICHE DEVIS (détail)
 // ============================================================
 
-let currentProductId = null;
+let currentDevisId = null;
 
-async function openProductDetail(productId) {
-  currentProductId = productId;
-  showView("product-detail");
-  await refreshProductDetail();
+async function openDevisDetail(devisId) {
+  currentDevisId = devisId;
+  showView("devis-detail");
+  await refreshDevisDetail();
 }
 
-async function refreshProductDetail() {
-  const p = cache.products.find((x) => x.id === currentProductId);
-  if (!p) return;
+async function refreshDevisDetail() {
+  const { data: d, error: dErr } = await sb.from("devis").select("*").eq("id", currentDevisId).single();
+  if (dErr || !d) {
+    alert("Ce devis est introuvable.");
+    showView("devis");
+    return;
+  }
 
-  qs("#pd-title").textContent = "Fiche produit — " + p.nom;
-  qs("#pd-reference").value = p.reference || "";
-  qs("#pd-nom").value = p.nom || "";
-  qs("#pd-categorie").value = p.categorie || "";
-  qs("#pd-description").value = p.description || "";
-  qs("#pd-actif").checked = !!p.actif;
+  qs("#dd-title").textContent = "Fiche devis — " + d.produit_nom;
+  qs("#dd-client").value = d.client || "";
+  qs("#dd-produit-nom").value = d.produit_nom || "";
+  qs("#dd-reference").value = d.reference || "";
+  qs("#dd-date").value = d.date_devis || "";
+  qs("#dd-longueur").value = d.longueur ?? "";
+  qs("#dd-largeur").value = d.largeur ?? "";
+  qs("#dd-hauteur").value = d.hauteur ?? "";
+  qs("#dd-profondeur").value = d.profondeur ?? "";
+  qs("#dd-frais-livraison").value = d.frais_livraison ?? 0;
+  qs("#dd-frais-emballage").value = d.frais_emballage ?? 0;
+  qs("#dd-prix-vente").value = d.prix_vente_ht ?? "";
+  qs("#dd-tva").value = d.tva_pct ?? 20;
 
-  // Selects
   fillSelect(
-    "#pd-material-select",
-    cache.materials.map((m) => ({ value: m.id, label: `${m.nom} (${fmtMoney(m.prix_unitaire)}/${m.unite})` }))
-  );
-  fillSelect(
-    "#pd-labor-select",
-    cache.labor.map((l) => ({ value: l.id, label: `${l.nom_poste} (${fmtMoney(l.taux_horaire)}/h)` }))
-  );
-  fillSelect(
-    "#pd-charge-select",
-    cache.charges.map((c) => ({ value: c.id, label: `${c.nom} (${c.type}, ${c.periode})` }))
+    "#dd-labor-select",
+    cache.workers.map((w) => ({ value: w.id, label: `${w.nom} — ${w.poste || ""} (${fmtMoney(workerTarifJour(w))}/j)` }))
   );
 
-  const [pm, pl, po, sp, cp] = await Promise.all([
-    sb.from("product_materials").select("*").eq("product_id", currentProductId),
-    sb.from("product_labor").select("*").eq("product_id", currentProductId),
-    sb.from("product_overhead").select("*").eq("product_id", currentProductId),
-    sb.from("selling_prices").select("*").eq("product_id", currentProductId).order("date_effet", { ascending: false }),
-    sb.from("competitor_prices").select("*").eq("product_id", currentProductId).order("date_releve", { ascending: false }),
+  const [matRes, laborRes, compRes] = await Promise.all([
+    sb.from("devis_materials").select("*").eq("devis_id", currentDevisId),
+    sb.from("devis_labor").select("*").eq("devis_id", currentDevisId),
+    sb.from("competitor_prices").select("*").eq("devis_id", currentDevisId).order("date_releve", { ascending: false }),
   ]);
+  const materials = matRes.data || [];
+  const labor = laborRes.data || [];
 
-  renderProductMaterials(pm.data || []);
-  renderProductLabor(pl.data || []);
-  renderProductCharges(po.data || []);
-  renderProductPrices(sp.data || []);
-  renderProductCompetitors(cp.data || []);
-  renderCostBreakdown(pm.data || [], pl.data || [], po.data || [], sp.data && sp.data[0]);
+  renderDevisMaterials(materials);
+  renderDevisLabor(labor);
+  renderDevisCompetitors(compRes.data || []);
+  renderDevisCostBreakdown(d, materials, labor);
 }
 
 function fillSelect(sel, options) {
@@ -517,160 +504,130 @@ function fillSelect(sel, options) {
   el.innerHTML = options.map((o) => `<option value="${o.value}">${escapeHtml(o.label)}</option>`).join("");
 }
 
-qs("#pd-save-info").addEventListener("click", async () => {
+qs("#dd-save-info").addEventListener("click", async () => {
   const values = {
-    reference: qs("#pd-reference").value,
-    nom: qs("#pd-nom").value,
-    categorie: qs("#pd-categorie").value,
-    description: qs("#pd-description").value,
-    actif: qs("#pd-actif").checked,
+    client: qs("#dd-client").value,
+    produit_nom: qs("#dd-produit-nom").value,
+    reference: qs("#dd-reference").value,
+    date_devis: qs("#dd-date").value || null,
+    longueur: numOrNull(qs("#dd-longueur").value),
+    largeur: numOrNull(qs("#dd-largeur").value),
+    hauteur: numOrNull(qs("#dd-hauteur").value),
+    profondeur: numOrNull(qs("#dd-profondeur").value),
   };
-  const { error } = await sb.from("products").update(values).eq("id", currentProductId);
+  if (!values.produit_nom) return alert("Le nom du produit est requis.");
+  const { error } = await sb.from("devis").update(values).eq("id", currentDevisId);
   if (error) return alert(error.message);
   await loadAllReferenceData();
-  await refreshProductDetail();
+  await refreshDevisDetail();
 });
 
-qs("#pd-delete-product").addEventListener("click", async () => {
-  if (!confirm("Supprimer définitivement ce produit ?")) return;
-  const { error } = await sb.from("products").delete().eq("id", currentProductId);
+qs("#dd-delete-devis").addEventListener("click", async () => {
+  if (!confirm("Supprimer définitivement ce devis ?")) return;
+  const { error } = await sb.from("devis").delete().eq("id", currentDevisId);
   if (error) return alert(error.message);
   await loadAllReferenceData();
-  showView("catalogue");
+  showView("devis");
 });
 
-// ---- Matières du produit ----
-function renderProductMaterials(rows) {
-  const tbody = qs("#pd-materials-body");
+qs("#dd-save-frais").addEventListener("click", async () => {
+  const values = {
+    frais_livraison: Number(qs("#dd-frais-livraison").value || 0),
+    frais_emballage: Number(qs("#dd-frais-emballage").value || 0),
+  };
+  const { error } = await sb.from("devis").update(values).eq("id", currentDevisId);
+  if (error) return alert(error.message);
+  await refreshDevisDetail();
+});
+
+qs("#dd-save-prix").addEventListener("click", async () => {
+  const values = {
+    prix_vente_ht: numOrNull(qs("#dd-prix-vente").value),
+    tva_pct: Number(qs("#dd-tva").value || 0),
+  };
+  const { error } = await sb.from("devis").update(values).eq("id", currentDevisId);
+  if (error) return alert(error.message);
+  await refreshDevisDetail();
+});
+
+// ---- Matières premières du devis ----
+function renderDevisMaterials(rows) {
+  const tbody = qs("#dd-materials-body");
   tbody.innerHTML = "";
   rows.forEach((r) => {
-    const mat = cache.materials.find((m) => m.id === r.material_id);
-    const sousTotal = mat ? mat.prix_unitaire * r.quantite : 0;
+    const total = Number(r.qte || 0) * Number(r.prix_unitaire || 0);
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(mat ? mat.nom : "?")}</td>
-      <td>${r.quantite} ${mat ? mat.unite : ""}</td>
-      <td>${mat ? fmtMoney(mat.prix_unitaire) : "—"}</td>
-      <td>${fmtMoney(sousTotal)}</td>
-      <td><button class="icon-btn del-pm" data-id="${r.id}">🗑</button></td>`;
+      <td>${escapeHtml(r.designation)}</td>
+      <td>${escapeHtml(r.origine || "")}</td>
+      <td>${r.qte}</td>
+      <td>${fmtMoney(r.prix_unitaire)}</td>
+      <td>${fmtMoney(total)}</td>
+      <td><button class="icon-btn del-dm" data-id="${r.id}">🗑</button></td>`;
     tbody.appendChild(tr);
   });
-  qsa(".del-pm").forEach((b) =>
+  qsa(".del-dm").forEach((b) =>
     b.addEventListener("click", async () => {
-      await sb.from("product_materials").delete().eq("id", b.dataset.id);
-      await refreshProductDetail();
+      await sb.from("devis_materials").delete().eq("id", b.dataset.id);
+      await refreshDevisDetail();
     })
   );
 }
 
-qs("#pd-add-material").addEventListener("click", async () => {
-  const material_id = qs("#pd-material-select").value;
-  const quantite = Number(qs("#pd-material-qty").value || 0);
-  if (!material_id || quantite <= 0) return alert("Choisis une matière et une quantité > 0.");
-  const { error } = await sb.from("product_materials").insert({ product_id: currentProductId, material_id, quantite });
+qs("#dd-add-material").addEventListener("click", async () => {
+  const designation = qs("#dd-mat-designation").value.trim();
+  const origine = qs("#dd-mat-origine").value.trim();
+  const qte = Number(qs("#dd-mat-qte").value || 0);
+  const prix_unitaire = Number(qs("#dd-mat-prix").value || 0);
+  if (!designation || qte <= 0) return alert("Renseigne une désignation et une quantité > 0.");
+  const { error } = await sb.from("devis_materials").insert({ devis_id: currentDevisId, designation, origine, qte, prix_unitaire });
   if (error) return alert(error.message);
-  qs("#pd-material-qty").value = "";
-  await refreshProductDetail();
+  qs("#dd-mat-designation").value = "";
+  qs("#dd-mat-origine").value = "";
+  qs("#dd-mat-qte").value = "";
+  qs("#dd-mat-prix").value = "";
+  await refreshDevisDetail();
 });
 
-// ---- Main d'œuvre du produit ----
-function renderProductLabor(rows) {
-  const tbody = qs("#pd-labor-body");
+// ---- Main d'œuvre du devis ----
+function renderDevisLabor(rows) {
+  const tbody = qs("#dd-labor-body");
   tbody.innerHTML = "";
   rows.forEach((r) => {
-    const lab = cache.labor.find((l) => l.id === r.labor_id);
-    const sousTotal = lab ? lab.taux_horaire * r.temps_heures : 0;
+    const w = cache.workers.find((x) => x.id === r.worker_id);
+    const tarifJour = w ? workerTarifJour(w) : 0;
+    const total = Number(r.nb_jours || 0) * tarifJour;
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(lab ? lab.nom_poste : "?")}</td>
-      <td>${r.temps_heures} h</td>
-      <td>${lab ? fmtMoney(lab.taux_horaire) : "—"}</td>
-      <td>${fmtMoney(sousTotal)}</td>
-      <td><button class="icon-btn del-pl" data-id="${r.id}">🗑</button></td>`;
+      <td>${escapeHtml(w ? w.nom : "?")}</td>
+      <td>${escapeHtml(w ? w.categorie || w.poste || "" : "")}</td>
+      <td>${r.nb_jours}</td>
+      <td>${fmtMoney(tarifJour)}</td>
+      <td>${fmtMoney(total)}</td>
+      <td><button class="icon-btn del-dl" data-id="${r.id}">🗑</button></td>`;
     tbody.appendChild(tr);
   });
-  qsa(".del-pl").forEach((b) =>
+  qsa(".del-dl").forEach((b) =>
     b.addEventListener("click", async () => {
-      await sb.from("product_labor").delete().eq("id", b.dataset.id);
-      await refreshProductDetail();
+      await sb.from("devis_labor").delete().eq("id", b.dataset.id);
+      await refreshDevisDetail();
     })
   );
 }
 
-qs("#pd-add-labor").addEventListener("click", async () => {
-  const labor_id = qs("#pd-labor-select").value;
-  const temps_heures = Number(qs("#pd-labor-hours").value || 0);
-  if (!labor_id || temps_heures <= 0) return alert("Choisis un poste et un temps > 0.");
-  const { error } = await sb.from("product_labor").insert({ product_id: currentProductId, labor_id, temps_heures });
+qs("#dd-add-labor").addEventListener("click", async () => {
+  const worker_id = qs("#dd-labor-select").value;
+  const nb_jours = Number(qs("#dd-labor-jours").value || 0);
+  if (!worker_id || nb_jours <= 0) return alert("Choisis un prestataire et un nombre de jours > 0.");
+  const { error } = await sb.from("devis_labor").insert({ devis_id: currentDevisId, worker_id, nb_jours });
   if (error) return alert(error.message);
-  qs("#pd-labor-hours").value = "";
-  await refreshProductDetail();
+  qs("#dd-labor-jours").value = "";
+  await refreshDevisDetail();
 });
 
-// ---- Charges allouées du produit ----
-function renderProductCharges(rows) {
-  const tbody = qs("#pd-charges-body");
-  tbody.innerHTML = "";
-  rows.forEach((r) => {
-    const chg = cache.charges.find((c) => c.id === r.charge_id);
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${escapeHtml(chg ? chg.nom : "?")}</td>
-      <td>${fmtMoney(r.montant_unitaire)}</td>
-      <td><button class="icon-btn del-po" data-id="${r.id}">🗑</button></td>`;
-    tbody.appendChild(tr);
-  });
-  qsa(".del-po").forEach((b) =>
-    b.addEventListener("click", async () => {
-      await sb.from("product_overhead").delete().eq("id", b.dataset.id);
-      await refreshProductDetail();
-    })
-  );
-}
-
-qs("#pd-add-charge").addEventListener("click", async () => {
-  const charge_id = qs("#pd-charge-select").value;
-  const montant_unitaire = Number(qs("#pd-charge-amount").value || 0);
-  if (!charge_id || montant_unitaire <= 0) return alert("Choisis une charge et un montant > 0.");
-  const { error } = await sb.from("product_overhead").insert({ product_id: currentProductId, charge_id, montant_unitaire });
-  if (error) return alert(error.message);
-  qs("#pd-charge-amount").value = "";
-  await refreshProductDetail();
-});
-
-// ---- Prix de vente ----
-function renderProductPrices(rows) {
-  const tbody = qs("#pd-prices-body");
-  tbody.innerHTML = "";
-  rows.forEach((r) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${fmtMoney(r.prix_vente)}</td>
-      <td>${fmtDate(r.date_effet)}</td>
-      <td><button class="icon-btn del-sp" data-id="${r.id}">🗑</button></td>`;
-    tbody.appendChild(tr);
-  });
-  qsa(".del-sp").forEach((b) =>
-    b.addEventListener("click", async () => {
-      await sb.from("selling_prices").delete().eq("id", b.dataset.id);
-      await refreshProductDetail();
-    })
-  );
-}
-
-qs("#pd-add-price").addEventListener("click", async () => {
-  const prix_vente = Number(qs("#pd-price-input").value || 0);
-  const date_effet = qs("#pd-price-date").value || new Date().toISOString().slice(0, 10);
-  if (prix_vente <= 0) return alert("Renseigne un prix de vente > 0.");
-  const { error } = await sb.from("selling_prices").insert({ product_id: currentProductId, prix_vente, date_effet });
-  if (error) return alert(error.message);
-  qs("#pd-price-input").value = "";
-  await refreshProductDetail();
-});
-
-// ---- Benchmarking concurrents (par produit) ----
-function renderProductCompetitors(rows) {
-  const tbody = qs("#pd-competitors-body");
+// ---- Benchmarking concurrents (par devis) ----
+function renderDevisCompetitors(rows) {
+  const tbody = qs("#dd-competitors-body");
   tbody.innerHTML = "";
   rows.forEach((r) => {
     const tr = document.createElement("tr");
@@ -685,55 +642,57 @@ function renderProductCompetitors(rows) {
   qsa(".del-cp").forEach((b) =>
     b.addEventListener("click", async () => {
       await sb.from("competitor_prices").delete().eq("id", b.dataset.id);
-      await refreshProductDetail();
+      await refreshDevisDetail();
     })
   );
 }
 
-qs("#pd-add-competitor").addEventListener("click", async () => {
-  const concurrent_nom = qs("#pd-comp-name").value.trim();
-  const prix = Number(qs("#pd-comp-price").value || 0);
-  const url_source = qs("#pd-comp-url").value.trim();
+qs("#dd-add-competitor").addEventListener("click", async () => {
+  const concurrent_nom = qs("#dd-comp-name").value.trim();
+  const prix = Number(qs("#dd-comp-price").value || 0);
+  const url_source = qs("#dd-comp-url").value.trim();
   if (!concurrent_nom || prix <= 0) return alert("Renseigne le nom du concurrent et un prix > 0.");
   const { error } = await sb
     .from("competitor_prices")
-    .insert({ product_id: currentProductId, concurrent_nom, prix, url_source: url_source || null });
+    .insert({ devis_id: currentDevisId, concurrent_nom, prix, url_source: url_source || null });
   if (error) return alert(error.message);
-  qs("#pd-comp-name").value = "";
-  qs("#pd-comp-price").value = "";
-  qs("#pd-comp-url").value = "";
-  await refreshProductDetail();
+  qs("#dd-comp-name").value = "";
+  qs("#dd-comp-price").value = "";
+  qs("#dd-comp-url").value = "";
+  await refreshDevisDetail();
 });
 
-// ---- Calcul du coût de revient (affiché dans la fiche produit) ----
-function renderCostBreakdown(materials, labor, overhead, latestPrice) {
-  const coutMatieres = materials.reduce((sum, r) => {
-    const mat = cache.materials.find((m) => m.id === r.material_id);
-    return sum + (mat ? mat.prix_unitaire * r.quantite : 0);
-  }, 0);
-  const coutMO = labor.reduce((sum, r) => {
-    const lab = cache.labor.find((l) => l.id === r.labor_id);
-    return sum + (lab ? lab.taux_horaire * r.temps_heures : 0);
-  }, 0);
-  const coutCharges = overhead.reduce((sum, r) => sum + Number(r.montant_unitaire), 0);
-  const coutTotal = coutMatieres + coutMO + coutCharges;
-  const prixVente = latestPrice ? Number(latestPrice.prix_vente) : null;
-  const marge = prixVente !== null ? prixVente - coutTotal : null;
-  const margePct = prixVente ? (marge / prixVente) * 100 : null;
+// ---- Récapitulatif & verdict ----
+function renderDevisCostBreakdown(devis, materials, labor) {
+  const c = calcDevisCosting(devis, materials, labor);
 
-  qs("#pd-cost-breakdown").innerHTML = `
-    <div class="row"><span>Coût matières</span><span>${fmtMoney(coutMatieres)}</span></div>
-    <div class="row"><span>Coût main d'œuvre</span><span>${fmtMoney(coutMO)}</span></div>
-    <div class="row"><span>Charges allouées</span><span>${fmtMoney(coutCharges)}</span></div>
-    <div class="row total"><span>Coût de revient total</span><span>${fmtMoney(coutTotal)}</span></div>
-    <div class="row"><span>Prix de vente actuel</span><span>${prixVente !== null ? fmtMoney(prixVente) : "—"}</span></div>
-    <div class="row"><span>Marge brute</span><span class="${marge !== null && marge < 0 ? "negative" : "positive"}">${
-    marge !== null ? fmtMoney(marge) : "—"
+  qs("#dd-cost-breakdown").innerHTML = `
+    <div class="row"><span>Coût total matières</span><span>${fmtMoney(c.coutMatieres)}</span></div>
+    <div class="row"><span>Coût total main d'œuvre</span><span>${fmtMoney(c.coutMainOeuvre)}</span></div>
+    <div class="row"><span>Frais divers</span><span>${fmtMoney(c.fraisDivers)}</span></div>
+    <div class="row total"><span>Coût de revient direct</span><span>${fmtMoney(c.coutRevientDirect)}</span></div>
+    <div class="row"><span>Quote-part charges fixes</span><span>${fmtMoney(c.quotePartCharges)}</span></div>
+    <div class="row total"><span>Coût de revient total</span><span>${fmtMoney(c.coutRevientTotal)}</span></div>
+    <div class="row"><span>Marge brute</span><span class="${c.margeBrute !== null && c.margeBrute < 0 ? "negative" : "positive"}">${
+    c.margeBrute !== null ? fmtMoney(c.margeBrute) : "—"
   }</span></div>
-    <div class="row"><span>Marge %</span><span class="${margePct !== null && margePct < 0 ? "negative" : "positive"}">${
-    margePct !== null ? fmtPct(margePct) : "—"
+    <div class="row"><span>Taux de marge réel</span><span class="${c.tauxMarge !== null && c.tauxMarge < 0 ? "negative" : "positive"}">${
+    c.tauxMarge !== null ? fmtPct(c.tauxMarge) : "—"
   }</span></div>
+    <div class="row"><span>Prix de vente TTC</span><span>${c.prixTTC !== null ? fmtMoney(c.prixTTC) : "—"}</span></div>
   `;
+
+  const verdictEl = qs("#dd-verdict");
+  if (c.prixVenteHT === null || c.prixVenteHT === 0) {
+    verdictEl.className = "verdict-banner neutral";
+    verdictEl.textContent = "⬆️ Saisis ton prix de vente HT pour voir la rentabilité.";
+  } else if (c.margeBrute > 0) {
+    verdictEl.className = "verdict-banner ok";
+    verdictEl.textContent = `✅ RENTABLE — Marge : ${fmtMoney(c.margeBrute)} (${fmtPct(c.tauxMarge)}) — Prix TTC client : ${fmtMoney(c.prixTTC)}`;
+  } else {
+    verdictEl.className = "verdict-banner bad";
+    verdictEl.textContent = `⚠️ PRIX TROP BAS — Tu perds ${fmtMoney(Math.abs(c.margeBrute))} sur ce devis — augmente ton prix !`;
+  }
 }
 
 // ============================================================
@@ -741,80 +700,70 @@ function renderCostBreakdown(materials, labor, overhead, latestPrice) {
 // ============================================================
 
 async function renderDashboard() {
-  const { data: costing, error } = await sb.from("product_costing").select("*");
-  if (error) {
-    console.error(error);
-    return;
-  }
-  const { data: competitors } = await sb.from("competitor_prices").select("product_id, prix");
+  const [matAllRes, laborAllRes] = await Promise.all([
+    sb.from("devis_materials").select("*"),
+    sb.from("devis_labor").select("*"),
+  ]);
+  const matAll = matAllRes.data || [];
+  const laborAll = laborAllRes.data || [];
 
-  const avgByProduct = {};
-  (competitors || []).forEach((c) => {
-    if (!avgByProduct[c.product_id]) avgByProduct[c.product_id] = [];
-    avgByProduct[c.product_id].push(Number(c.prix));
+  const rows = cache.devisList.map((d) => {
+    const materials = matAll.filter((m) => m.devis_id === d.id);
+    const labor = laborAll.filter((l) => l.devis_id === d.id);
+    const c = calcDevisCosting(d, materials, labor);
+    return { devis: d, costing: c };
   });
 
-  const rows = (costing || []).map((r) => {
-    const prices = avgByProduct[r.product_id] || [];
-    const avgConcurrent = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
-    const ecart = r.prix_vente && avgConcurrent ? r.prix_vente - avgConcurrent : null;
-    return { ...r, avgConcurrent, ecart };
-  });
-
-  // KPIs
-  const produitsActifs = cache.products.filter((p) => p.actif).length;
-  const margesValides = rows.filter((r) => r.marge_pct !== null && r.marge_pct !== undefined);
-  const margeMoyenne = margesValides.length
-    ? margesValides.reduce((a, r) => a + Number(r.marge_pct), 0) / margesValides.length
+  const withPrice = rows.filter((r) => r.costing.prixVenteHT !== null && r.costing.prixVenteHT > 0);
+  const rentables = withPrice.filter((r) => r.costing.margeBrute > 0);
+  const nonRentables = withPrice.filter((r) => r.costing.margeBrute <= 0);
+  const margeMoyenne = withPrice.length
+    ? withPrice.reduce((a, r) => a + r.costing.tauxMarge, 0) / withPrice.length
     : null;
-  const produitsEnPerte = rows.filter((r) => r.marge_brute !== null && Number(r.marge_brute) < 0).length;
-  const ecartsValides = rows.filter((r) => r.ecart !== null);
-  const ecartMoyen = ecartsValides.length
-    ? ecartsValides.reduce((a, r) => a + Number(r.ecart), 0) / ecartsValides.length
-    : null;
+  const caPotentiel = withPrice.reduce((a, r) => a + r.costing.prixVenteHT, 0);
 
   qs("#kpi-row").innerHTML = `
     <div class="kpi-card">
-      <div class="kpi-label">Produits actifs</div>
-      <div class="kpi-value">${produitsActifs}</div>
+      <div class="kpi-label">Devis</div>
+      <div class="kpi-value">${cache.devisList.length}</div>
     </div>
     <div class="kpi-card ${margeMoyenne !== null && margeMoyenne < 0 ? "warn" : "good"}">
       <div class="kpi-label">Marge moyenne</div>
       <div class="kpi-value">${margeMoyenne !== null ? fmtPct(margeMoyenne) : "—"}</div>
     </div>
-    <div class="kpi-card ${produitsEnPerte > 0 ? "warn" : "good"}">
-      <div class="kpi-label">Produits en perte</div>
-      <div class="kpi-value">${produitsEnPerte}</div>
+    <div class="kpi-card ${nonRentables.length > 0 ? "warn" : "good"}">
+      <div class="kpi-label">Devis non rentables</div>
+      <div class="kpi-value">${nonRentables.length}</div>
     </div>
-    <div class="kpi-card ${ecartMoyen !== null && ecartMoyen < 0 ? "warn" : "good"}">
-      <div class="kpi-label">Écart moyen vs concurrence</div>
-      <div class="kpi-value">${ecartMoyen !== null ? fmtMoney(ecartMoyen) : "—"}</div>
+    <div class="kpi-card">
+      <div class="kpi-label">CA potentiel (devis chiffrés)</div>
+      <div class="kpi-value">${fmtMoney(caPotentiel)}</div>
     </div>
   `;
 
   const tbody = qs("#dashboard-table tbody");
   tbody.innerHTML = "";
-  rows.forEach((r) => {
+  rows.forEach(({ devis: d, costing: c }) => {
     const tr = document.createElement("tr");
     tr.classList.add("clickable");
+    let badge = '<span class="badge neutral">À chiffrer</span>';
+    if (c.prixVenteHT !== null && c.prixVenteHT > 0) {
+      badge = c.margeBrute > 0 ? '<span class="badge ok">Rentable</span>' : '<span class="badge bad">Perte</span>';
+    }
     tr.innerHTML = `
-      <td>${escapeHtml(r.produit)}</td>
-      <td>${fmtMoney(r.cout_matieres)}</td>
-      <td>${fmtMoney(r.cout_main_oeuvre)}</td>
-      <td>${fmtMoney(r.cout_charges)}</td>
-      <td>${fmtMoney(r.cout_total)}</td>
-      <td>${r.prix_vente !== null ? fmtMoney(r.prix_vente) : "—"}</td>
-      <td class="${r.marge_brute !== null && r.marge_brute < 0 ? "negative" : "positive"}">${
-      r.marge_brute !== null ? fmtMoney(r.marge_brute) : "—"
+      <td>${escapeHtml(d.client || "")}</td>
+      <td>${escapeHtml(d.produit_nom)}</td>
+      <td>${fmtDate(d.date_devis)}</td>
+      <td>${c.prixVenteHT !== null ? fmtMoney(c.prixVenteHT) : "—"}</td>
+      <td>${fmtMoney(c.coutRevientTotal)}</td>
+      <td class="${c.margeBrute !== null && c.margeBrute < 0 ? "negative" : "positive"}">${
+      c.margeBrute !== null ? fmtMoney(c.margeBrute) : "—"
     }</td>
-      <td class="${r.marge_pct !== null && r.marge_pct < 0 ? "negative" : "positive"}">${
-      r.marge_pct !== null ? fmtPct(r.marge_pct) : "—"
+      <td class="${c.tauxMarge !== null && c.tauxMarge < 0 ? "negative" : "positive"}">${
+      c.tauxMarge !== null ? fmtPct(c.tauxMarge) : "—"
     }</td>
-      <td>${r.avgConcurrent !== null ? fmtMoney(r.avgConcurrent) : "—"}</td>
-      <td class="${r.ecart !== null && r.ecart < 0 ? "negative" : "positive"}">${
-      r.ecart !== null ? fmtMoney(r.ecart) : "—"
-    }</td>`;
-    tr.addEventListener("click", () => openProductDetail(r.product_id));
+      <td>${badge}</td>`;
+    tr.addEventListener("click", () => openDevisDetail(d.id));
     tbody.appendChild(tr);
   });
 }
@@ -828,7 +777,7 @@ qs("#refresh-dashboard").addEventListener("click", renderDashboard);
 async function renderBenchmarkingTable() {
   const { data, error } = await sb
     .from("competitor_prices")
-    .select("*, products(nom)")
+    .select("*, devis(produit_nom, client)")
     .order("date_releve", { ascending: false });
   if (error) {
     console.error(error);
@@ -838,8 +787,9 @@ async function renderBenchmarkingTable() {
   tbody.innerHTML = "";
   (data || []).forEach((r) => {
     const tr = document.createElement("tr");
+    const label = r.devis ? `${r.devis.produit_nom}${r.devis.client ? " (" + r.devis.client + ")" : ""}` : "—";
     tr.innerHTML = `
-      <td>${escapeHtml(r.products ? r.products.nom : "—")}</td>
+      <td>${escapeHtml(label)}</td>
       <td>${escapeHtml(r.concurrent_nom)}</td>
       <td>${fmtMoney(r.prix)}</td>
       <td>${fmtDate(r.date_releve)}</td>

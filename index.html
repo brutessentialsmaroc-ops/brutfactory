@@ -38,10 +38,9 @@
 
   <nav class="tabs">
     <button class="tab-btn active" data-view="dashboard">Tableau de bord</button>
-    <button class="tab-btn" data-view="catalogue">Catalogue</button>
-    <button class="tab-btn" data-view="materials">Matières premières</button>
-    <button class="tab-btn" data-view="labor">Main d'œuvre</button>
-    <button class="tab-btn" data-view="charges">Charges</button>
+    <button class="tab-btn" data-view="devis">Devis</button>
+    <button class="tab-btn" data-view="workers">Prestataires &amp; Tarifs</button>
+    <button class="tab-btn" data-view="charges-fixes">Charges Fixes</button>
     <button class="tab-btn" data-view="benchmarking">Benchmarking</button>
   </nav>
 
@@ -58,16 +57,14 @@
         <table class="data-table" id="dashboard-table">
           <thead>
             <tr>
+              <th>Client</th>
               <th>Produit</th>
-              <th>Coût matières</th>
-              <th>Coût MO</th>
-              <th>Charges</th>
-              <th>Coût total</th>
-              <th>Prix de vente</th>
+              <th>Date</th>
+              <th>Prix vente HT</th>
+              <th>Coût revient total</th>
               <th>Marge</th>
               <th>Marge %</th>
-              <th>Prix concurrent moyen</th>
-              <th>Écart</th>
+              <th>Statut</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -75,174 +72,178 @@
       </div>
     </section>
 
-    <!-- ---------- CATALOGUE ---------- -->
-    <section id="view-catalogue" class="view">
+    <!-- ---------- DEVIS (liste) ---------- -->
+    <section id="view-devis" class="view">
       <div class="view-header">
-        <h2>Catalogue produits</h2>
-        <button class="btn btn-primary" id="add-product-btn">+ Nouveau produit</button>
+        <h2>Devis</h2>
+        <button class="btn btn-primary" id="add-devis-btn">+ Nouveau devis</button>
       </div>
       <div class="table-wrap">
-        <table class="data-table" id="products-table">
+        <table class="data-table" id="devis-table">
           <thead>
-            <tr><th>Référence</th><th>Nom</th><th>Catégorie</th><th>Actif</th><th></th></tr>
+            <tr><th>Client</th><th>Produit</th><th>Référence</th><th>Date</th><th></th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
     </section>
 
-    <!-- ---------- MATIERES PREMIERES ---------- -->
-    <section id="view-materials" class="view">
+    <!-- ---------- PRESTATAIRES & TARIFS ---------- -->
+    <section id="view-workers" class="view">
       <div class="view-header">
-        <h2>Matières premières</h2>
-        <button class="btn btn-primary" id="add-material-btn">+ Nouvelle matière</button>
+        <h2>Prestataires &amp; Tarifs</h2>
+        <button class="btn btn-primary" id="add-worker-btn">+ Nouveau prestataire</button>
       </div>
+      <p class="muted">Tarif/jour = (Salaire mensuel × 1,20 pour CNSS) ÷ Jours travaillés par mois.</p>
       <div class="table-wrap">
-        <table class="data-table" id="materials-table">
+        <table class="data-table" id="workers-table">
           <thead>
-            <tr><th>Nom</th><th>Unité</th><th>Prix unitaire</th><th>Fournisseur</th><th></th></tr>
+            <tr>
+              <th>Nom</th><th>Poste</th><th>Catégorie</th><th>Salaire/mois</th>
+              <th>CNSS (20%)</th><th>Coût chargé</th><th>Jours/mois</th><th>Tarif/jour</th><th></th>
+            </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
     </section>
 
-    <!-- ---------- MAIN D'OEUVRE ---------- -->
-    <section id="view-labor" class="view">
+    <!-- ---------- CHARGES FIXES ---------- -->
+    <section id="view-charges-fixes" class="view">
       <div class="view-header">
-        <h2>Main d'œuvre</h2>
-        <button class="btn btn-primary" id="add-labor-btn">+ Nouveau poste</button>
+        <h2>Charges fixes mensuelles</h2>
+        <button class="btn btn-primary" id="add-charge-fixe-btn">+ Nouvelle charge</button>
       </div>
+
+      <div class="card">
+        <h3>Répartition sur les devis</h3>
+        <div class="inline-form">
+          <label style="flex:1; min-width:220px;">CA mensuel estimé (DHS)
+            <input type="number" id="ca-mensuel-input" step="0.01" min="0" />
+          </label>
+          <button class="btn btn-secondary" id="save-ca-mensuel" style="align-self:flex-end;">Enregistrer</button>
+        </div>
+        <p class="muted">Pour chaque devis, la quote-part de charges fixes = (Prix de vente HT ÷ CA mensuel estimé) × Total des charges fixes mensuelles.</p>
+      </div>
+
       <div class="table-wrap">
-        <table class="data-table" id="labor-table">
+        <table class="data-table" id="charges-fixes-table">
           <thead>
-            <tr><th>Poste</th><th>Taux horaire</th><th>Notes</th><th></th></tr>
+            <tr><th>Désignation</th><th>Montant/mois</th><th>Annuel</th><th>Notes</th><th></th></tr>
           </thead>
           <tbody></tbody>
+          <tfoot>
+            <tr>
+              <td><strong>TOTAL CHARGES FIXES / MOIS</strong></td>
+              <td id="charges-fixes-total"><strong>—</strong></td>
+              <td id="charges-fixes-total-annuel">—</td>
+              <td></td><td></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </section>
 
-    <!-- ---------- CHARGES ---------- -->
-    <section id="view-charges" class="view">
-      <div class="view-header">
-        <h2>Charges (fixes / variables)</h2>
-        <button class="btn btn-primary" id="add-charge-btn">+ Nouvelle charge</button>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table" id="charges-table">
-          <thead>
-            <tr><th>Nom</th><th>Type</th><th>Montant</th><th>Période</th><th></th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- ---------- BENCHMARKING ---------- -->
+    <!-- ---------- BENCHMARKING (global) ---------- -->
     <section id="view-benchmarking" class="view">
       <div class="view-header">
         <h2>Benchmarking prix concurrents</h2>
       </div>
-      <p class="muted">Sélectionne un produit dans le catalogue pour ajouter des relevés de prix concurrents, ou consulte la synthèse ci-dessous.</p>
+      <p class="muted">Ouvre un devis pour ajouter des relevés de prix concurrents. Synthèse ci-dessous.</p>
       <div class="table-wrap">
         <table class="data-table" id="benchmarking-table">
           <thead>
-            <tr><th>Produit</th><th>Concurrent</th><th>Prix relevé</th><th>Date</th><th>Source</th><th></th></tr>
+            <tr><th>Devis / Produit</th><th>Concurrent</th><th>Prix relevé</th><th>Date</th><th>Source</th><th></th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
     </section>
 
-    <!-- ---------- FICHE PRODUIT (détail) ---------- -->
-    <section id="view-product-detail" class="view">
+    <!-- ---------- FICHE DEVIS (détail) ---------- -->
+    <section id="view-devis-detail" class="view">
       <div class="view-header">
-        <button class="btn btn-ghost" id="back-to-catalogue">← Catalogue</button>
-        <h2 id="pd-title">Fiche produit</h2>
+        <button class="btn btn-ghost" id="back-to-devis">← Devis</button>
+        <h2 id="dd-title">Fiche devis</h2>
       </div>
 
       <div class="grid-2">
         <div class="card">
-          <h3>Informations</h3>
-          <label>Référence <input type="text" id="pd-reference" /></label>
-          <label>Nom <input type="text" id="pd-nom" /></label>
-          <label>Catégorie <input type="text" id="pd-categorie" /></label>
-          <label>Description <textarea id="pd-description" rows="2"></textarea></label>
-          <label class="checkbox-row"><input type="checkbox" id="pd-actif" /> Actif</label>
-          <button class="btn btn-primary" id="pd-save-info">Enregistrer</button>
-          <button class="btn btn-danger" id="pd-delete-product">Supprimer le produit</button>
+          <h3>Informations commande</h3>
+          <label>Client <input type="text" id="dd-client" /></label>
+          <label>Nom du produit <input type="text" id="dd-produit-nom" /></label>
+          <label>Référence <input type="text" id="dd-reference" /></label>
+          <label>Date <input type="date" id="dd-date" /></label>
+          <div class="inline-form">
+            <label style="flex:1;">L (cm) <input type="number" id="dd-longueur" step="0.1" /></label>
+            <label style="flex:1;">l (cm) <input type="number" id="dd-largeur" step="0.1" /></label>
+          </div>
+          <div class="inline-form">
+            <label style="flex:1;">Hauteur (cm) <input type="number" id="dd-hauteur" step="0.1" /></label>
+            <label style="flex:1;">Profondeur (cm) <input type="number" id="dd-profondeur" step="0.1" /></label>
+          </div>
+          <button class="btn btn-primary" id="dd-save-info">Enregistrer</button>
+          <button class="btn btn-danger" id="dd-delete-devis">Supprimer ce devis</button>
         </div>
 
         <div class="card">
-          <h3>Coût de revient</h3>
-          <div id="pd-cost-breakdown" class="cost-breakdown"></div>
+          <h3>Récapitulatif &amp; prix de vente</h3>
+          <label>Prix de vente HT (DHS) <input type="number" id="dd-prix-vente" step="0.01" min="0" /></label>
+          <label>TVA (%) <input type="number" id="dd-tva" step="0.01" min="0" /></label>
+          <button class="btn btn-primary" id="dd-save-prix">Enregistrer</button>
+          <div id="dd-cost-breakdown" class="cost-breakdown"></div>
+          <div id="dd-verdict" class="verdict-banner"></div>
         </div>
       </div>
 
       <div class="card">
-        <h3>Matières premières utilisées</h3>
+        <h3>Matières premières</h3>
         <div class="inline-form">
-          <select id="pd-material-select"></select>
-          <input type="number" id="pd-material-qty" placeholder="Quantité" step="0.0001" min="0" />
-          <button class="btn btn-secondary" id="pd-add-material">Ajouter</button>
+          <input type="text" id="dd-mat-designation" placeholder="Désignation" />
+          <input type="text" id="dd-mat-origine" placeholder="Origine" />
+          <input type="number" id="dd-mat-qte" placeholder="Qté" step="0.0001" min="0" />
+          <input type="number" id="dd-mat-prix" placeholder="Prix unit." step="0.01" min="0" />
+          <button class="btn btn-secondary" id="dd-add-material">Ajouter</button>
         </div>
         <table class="data-table small">
-          <thead><tr><th>Matière</th><th>Quantité</th><th>Prix unit.</th><th>Sous-total</th><th></th></tr></thead>
-          <tbody id="pd-materials-body"></tbody>
+          <thead><tr><th>Désignation</th><th>Origine</th><th>Qté</th><th>Prix unit.</th><th>Total</th><th></th></tr></thead>
+          <tbody id="dd-materials-body"></tbody>
         </table>
       </div>
 
       <div class="card">
         <h3>Main d'œuvre</h3>
         <div class="inline-form">
-          <select id="pd-labor-select"></select>
-          <input type="number" id="pd-labor-hours" placeholder="Heures" step="0.01" min="0" />
-          <button class="btn btn-secondary" id="pd-add-labor">Ajouter</button>
+          <select id="dd-labor-select"></select>
+          <input type="number" id="dd-labor-jours" placeholder="Nb jours" step="0.01" min="0" />
+          <button class="btn btn-secondary" id="dd-add-labor">Ajouter</button>
         </div>
         <table class="data-table small">
-          <thead><tr><th>Poste</th><th>Heures</th><th>Taux</th><th>Sous-total</th><th></th></tr></thead>
-          <tbody id="pd-labor-body"></tbody>
+          <thead><tr><th>Prestataire</th><th>Catégorie</th><th>Nb jours</th><th>Tarif/jour</th><th>Total</th><th></th></tr></thead>
+          <tbody id="dd-labor-body"></tbody>
         </table>
       </div>
 
       <div class="card">
-        <h3>Charges allouées</h3>
+        <h3>Frais divers</h3>
         <div class="inline-form">
-          <select id="pd-charge-select"></select>
-          <input type="number" id="pd-charge-amount" placeholder="Montant / unité" step="0.01" min="0" />
-          <button class="btn btn-secondary" id="pd-add-charge">Ajouter</button>
+          <label style="flex:1;">Livraison (DHS) <input type="number" id="dd-frais-livraison" step="0.01" min="0" /></label>
+          <label style="flex:1;">Emballage / protection (DHS) <input type="number" id="dd-frais-emballage" step="0.01" min="0" /></label>
+          <button class="btn btn-secondary" id="dd-save-frais" style="align-self:flex-end;">Enregistrer</button>
         </div>
-        <table class="data-table small">
-          <thead><tr><th>Charge</th><th>Montant alloué</th><th></th></tr></thead>
-          <tbody id="pd-charges-body"></tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <h3>Prix de vente</h3>
-        <div class="inline-form">
-          <input type="number" id="pd-price-input" placeholder="Prix de vente" step="0.01" min="0" />
-          <input type="date" id="pd-price-date" />
-          <button class="btn btn-secondary" id="pd-add-price">Enregistrer le prix</button>
-        </div>
-        <table class="data-table small">
-          <thead><tr><th>Prix</th><th>Date d'effet</th><th></th></tr></thead>
-          <tbody id="pd-prices-body"></tbody>
-        </table>
       </div>
 
       <div class="card">
         <h3>Benchmarking concurrents</h3>
         <div class="inline-form">
-          <input type="text" id="pd-comp-name" placeholder="Nom du concurrent" />
-          <input type="number" id="pd-comp-price" placeholder="Prix" step="0.01" min="0" />
-          <input type="text" id="pd-comp-url" placeholder="URL / source (optionnel)" />
-          <button class="btn btn-secondary" id="pd-add-competitor">Ajouter</button>
+          <input type="text" id="dd-comp-name" placeholder="Nom du concurrent" />
+          <input type="number" id="dd-comp-price" placeholder="Prix" step="0.01" min="0" />
+          <input type="text" id="dd-comp-url" placeholder="URL / source (optionnel)" />
+          <button class="btn btn-secondary" id="dd-add-competitor">Ajouter</button>
         </div>
         <table class="data-table small">
           <thead><tr><th>Concurrent</th><th>Prix</th><th>Date</th><th>Source</th><th></th></tr></thead>
-          <tbody id="pd-competitors-body"></tbody>
+          <tbody id="dd-competitors-body"></tbody>
         </table>
       </div>
 

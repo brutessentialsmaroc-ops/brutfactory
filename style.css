@@ -1,0 +1,194 @@
+:root {
+  --bg: #f5f6f8;
+  --card-bg: #ffffff;
+  --border: #e2e4e9;
+  --text: #1c1f26;
+  --muted: #6b7280;
+  --primary: #2f6f4f;
+  --primary-dark: #245939;
+  --danger: #b3423e;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.muted { color: var(--muted); font-size: 0.9em; }
+
+/* ---------- Auth screen ---------- */
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.auth-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.auth-card h1 { margin: 0 0 4px; font-size: 1.3em; }
+
+label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9em; font-weight: 600; }
+input, select, textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+}
+textarea { resize: vertical; }
+
+.error-msg { color: var(--danger); font-size: 0.85em; min-height: 1em; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-secondary { background: #eef2ee; color: var(--primary-dark); border-color: var(--border); }
+.btn-ghost { background: transparent; color: var(--text); border-color: var(--border); }
+.btn-link { background: none; border: none; color: var(--primary); text-decoration: underline; cursor: pointer; padding: 4px; }
+.btn-danger { background: #fff; color: var(--danger); border-color: var(--danger); }
+.btn-sm { padding: 4px 8px; font-size: 0.8em; }
+
+/* ---------- App shell ---------- */
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 700; font-size: 1.1em; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 24px 0;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.tab-btn {
+  background: none;
+  border: none;
+  padding: 10px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.tab-btn.active { color: var(--primary-dark); border-bottom-color: var(--primary); }
+
+.content { padding: 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
+
+.view { display: none; }
+.view.active { display: block; }
+
+.view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.view-header h2 { margin: 0; }
+
+/* ---------- KPI ---------- */
+.kpi-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.kpi-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  min-width: 160px;
+  flex: 1;
+}
+.kpi-card .kpi-label { font-size: 0.8em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.kpi-card .kpi-value { font-size: 1.5em; font-weight: 700; margin-top: 4px; }
+.kpi-card.warn .kpi-value { color: var(--danger); }
+.kpi-card.good .kpi-value { color: var(--primary); }
+
+/* ---------- Tables ---------- */
+.table-wrap { overflow-x: auto; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); }
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.92em; }
+.data-table th, .data-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.data-table th { background: #fafbfc; font-size: 0.78em; text-transform: uppercase; color: var(--muted); letter-spacing: 0.02em; }
+.data-table tbody tr:hover { background: #fafbfc; cursor: default; }
+.data-table tbody tr.clickable { cursor: pointer; }
+.data-table tbody tr.clickable:hover { background: #f0f4f1; }
+.data-table.small th, .data-table.small td { padding: 6px 8px; font-size: 0.88em; }
+
+.negative { color: var(--danger); font-weight: 600; }
+.positive { color: var(--primary); font-weight: 600; }
+
+/* ---------- Cards / product detail ---------- */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card h3 { margin: 0 0 4px; font-size: 1.02em; }
+
+.checkbox-row { flex-direction: row; align-items: center; gap: 8px; }
+.checkbox-row input { width: auto; }
+
+.inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.inline-form input, .inline-form select { flex: 1; min-width: 120px; }
+
+.cost-breakdown { display: flex; flex-direction: column; gap: 6px; }
+.cost-breakdown .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+.cost-breakdown .row.total { font-weight: 700; border-bottom: none; border-top: 2px solid var(--border); padding-top: 8px; margin-top: 4px; }
+
+/* ---------- Modal ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
+}
+.modal {
+  background: #fff; border-radius: var(--radius); padding: 24px; width: 100%; max-width: 420px;
+  display: flex; flex-direction: column; gap: 12px; max-height: 90vh; overflow-y: auto;
+}
+.modal h3 { margin: 0; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
+.icon-btn {
+  background: none; border: none; cursor: pointer; color: var(--muted); font-size: 0.85em;
+}
+.icon-btn:hover { color: var(--danger); }

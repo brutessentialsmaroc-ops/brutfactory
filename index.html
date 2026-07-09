@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Coûts & Rentabilité</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ===================== ECRAN DE CONNEXION ===================== -->
+<div id="auth-screen" class="auth-screen">
+  <form id="auth-form" class="auth-card">
+    <h1>Coûts &amp; Rentabilité</h1>
+    <p class="muted">Connecte-toi pour accéder à ton espace.</p>
+    <label>Email
+      <input type="email" id="auth-email" required autocomplete="username" />
+    </label>
+    <label>Mot de passe
+      <input type="password" id="auth-password" required autocomplete="current-password" />
+    </label>
+    <div id="auth-error" class="error-msg"></div>
+    <button type="submit" class="btn btn-primary" id="auth-submit">Se connecter</button>
+    <button type="button" class="btn btn-link" id="auth-toggle">Créer un compte</button>
+  </form>
+</div>
+
+<!-- ===================== APPLICATION ===================== -->
+<div id="app" class="app" hidden>
+
+  <header class="topbar">
+    <div class="brand">Coûts &amp; Rentabilité</div>
+    <div class="topbar-right">
+      <span id="user-email" class="muted"></span>
+      <button id="logout-btn" class="btn btn-ghost">Déconnexion</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-view="dashboard">Tableau de bord</button>
+    <button class="tab-btn" data-view="catalogue">Catalogue</button>
+    <button class="tab-btn" data-view="materials">Matières premières</button>
+    <button class="tab-btn" data-view="labor">Main d'œuvre</button>
+    <button class="tab-btn" data-view="charges">Charges</button>
+    <button class="tab-btn" data-view="benchmarking">Benchmarking</button>
+  </nav>
+
+  <main class="content">
+
+    <!-- ---------- DASHBOARD ---------- -->
+    <section id="view-dashboard" class="view active">
+      <div class="view-header">
+        <h2>Tableau de bord rentabilité</h2>
+        <button id="refresh-dashboard" class="btn btn-ghost">Actualiser</button>
+      </div>
+      <div class="kpi-row" id="kpi-row"></div>
+      <div class="table-wrap">
+        <table class="data-table" id="dashboard-table">
+          <thead>
+            <tr>
+              <th>Produit</th>
+              <th>Coût matières</th>
+              <th>Coût MO</th>
+              <th>Charges</th>
+              <th>Coût total</th>
+              <th>Prix de vente</th>
+              <th>Marge</th>
+              <th>Marge %</th>
+              <th>Prix concurrent moyen</th>
+              <th>Écart</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------- CATALOGUE ---------- -->
+    <section id="view-catalogue" class="view">
+      <div class="view-header">
+        <h2>Catalogue produits</h2>
+        <button class="btn btn-primary" id="add-product-btn">+ Nouveau produit</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="products-table">
+          <thead>
+            <tr><th>Référence</th><th>Nom</th><th>Catégorie</th><th>Actif</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------- MATIERES PREMIERES ---------- -->
+    <section id="view-materials" class="view">
+      <div class="view-header">
+        <h2>Matières premières</h2>
+        <button class="btn btn-primary" id="add-material-btn">+ Nouvelle matière</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="materials-table">
+          <thead>
+            <tr><th>Nom</th><th>Unité</th><th>Prix unitaire</th><th>Fournisseur</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------- MAIN D'OEUVRE ---------- -->
+    <section id="view-labor" class="view">
+      <div class="view-header">
+        <h2>Main d'œuvre</h2>
+        <button class="btn btn-primary" id="add-labor-btn">+ Nouveau poste</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="labor-table">
+          <thead>
+            <tr><th>Poste</th><th>Taux horaire</th><th>Notes</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------- CHARGES ---------- -->
+    <section id="view-charges" class="view">
+      <div class="view-header">
+        <h2>Charges (fixes / variables)</h2>
+        <button class="btn btn-primary" id="add-charge-btn">+ Nouvelle charge</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="charges-table">
+          <thead>
+            <tr><th>Nom</th><th>Type</th><th>Montant</th><th>Période</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------- BENCHMARKING ---------- -->
+    <section id="view-benchmarking" class="view">
+      <div class="view-header">
+        <h2>Benchmarking prix concurrents</h2>
+      </div>
+      <p class="muted">Sélectionne un produit dans le catalogue pour ajouter des relevés de prix concurrents, ou consulte la synthèse ci-dessous.</p>
+      <div class="table-wrap">
+        <table class="data-table" id="benchmarking-table">
+          <thead>
+            <tr><th>Produit</th><th>Concurrent</th><th>Prix relevé</th><th>Date</th><th>Source</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------- FICHE PRODUIT (détail) ---------- -->
+    <section id="view-product-detail" class="view">
+      <div class="view-header">
+        <button class="btn btn-ghost" id="back-to-catalogue">← Catalogue</button>
+        <h2 id="pd-title">Fiche produit</h2>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>Informations</h3>
+          <label>Référence <input type="text" id="pd-reference" /></label>
+          <label>Nom <input type="text" id="pd-nom" /></label>
+          <label>Catégorie <input type="text" id="pd-categorie" /></label>
+          <label>Description <textarea id="pd-description" rows="2"></textarea></label>
+          <label class="checkbox-row"><input type="checkbox" id="pd-actif" /> Actif</label>
+          <button class="btn btn-primary" id="pd-save-info">Enregistrer</button>
+          <button class="btn btn-danger" id="pd-delete-product">Supprimer le produit</button>
+        </div>
+
+        <div class="card">
+          <h3>Coût de revient</h3>
+          <div id="pd-cost-breakdown" class="cost-breakdown"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Matières premières utilisées</h3>
+        <div class="inline-form">
+          <select id="pd-material-select"></select>
+          <input type="number" id="pd-material-qty" placeholder="Quantité" step="0.0001" min="0" />
+          <button class="btn btn-secondary" id="pd-add-material">Ajouter</button>
+        </div>
+        <table class="data-table small">
+          <thead><tr><th>Matière</th><th>Quantité</th><th>Prix unit.</th><th>Sous-total</th><th></th></tr></thead>
+          <tbody id="pd-materials-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Main d'œuvre</h3>
+        <div class="inline-form">
+          <select id="pd-labor-select"></select>
+          <input type="number" id="pd-labor-hours" placeholder="Heures" step="0.01" min="0" />
+          <button class="btn btn-secondary" id="pd-add-labor">Ajouter</button>
+        </div>
+        <table class="data-table small">
+          <thead><tr><th>Poste</th><th>Heures</th><th>Taux</th><th>Sous-total</th><th></th></tr></thead>
+          <tbody id="pd-labor-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Charges allouées</h3>
+        <div class="inline-form">
+          <select id="pd-charge-select"></select>
+          <input type="number" id="pd-charge-amount" placeholder="Montant / unité" step="0.01" min="0" />
+          <button class="btn btn-secondary" id="pd-add-charge">Ajouter</button>
+        </div>
+        <table class="data-table small">
+          <thead><tr><th>Charge</th><th>Montant alloué</th><th></th></tr></thead>
+          <tbody id="pd-charges-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Prix de vente</h3>
+        <div class="inline-form">
+          <input type="number" id="pd-price-input" placeholder="Prix de vente" step="0.01" min="0" />
+          <input type="date" id="pd-price-date" />
+          <button class="btn btn-secondary" id="pd-add-price">Enregistrer le prix</button>
+        </div>
+        <table class="data-table small">
+          <thead><tr><th>Prix</th><th>Date d'effet</th><th></th></tr></thead>
+          <tbody id="pd-prices-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Benchmarking concurrents</h3>
+        <div class="inline-form">
+          <input type="text" id="pd-comp-name" placeholder="Nom du concurrent" />
+          <input type="number" id="pd-comp-price" placeholder="Prix" step="0.01" min="0" />
+          <input type="text" id="pd-comp-url" placeholder="URL / source (optionnel)" />
+          <button class="btn btn-secondary" id="pd-add-competitor">Ajouter</button>
+        </div>
+        <table class="data-table small">
+          <thead><tr><th>Concurrent</th><th>Prix</th><th>Date</th><th>Source</th><th></th></tr></thead>
+          <tbody id="pd-competitors-body"></tbody>
+        </table>
+      </div>
+
+    </section>
+
+  </main>
+</div>
+
+<!-- ===================== MODALE GENERIQUE (add/edit) ===================== -->
+<div id="modal-overlay" class="modal-overlay" hidden>
+  <div class="modal">
+    <h3 id="modal-title">Titre</h3>
+    <div id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="modal-cancel">Annuler</button>
+      <button class="btn btn-primary" id="modal-save">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
